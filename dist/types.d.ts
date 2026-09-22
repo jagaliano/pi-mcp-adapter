@@ -419,7 +419,7 @@ export interface McpSettings {
     scriptMode?: boolean;
     /** Expose MCP resources as tools (default: true). Set to false to disable globally across all servers. */
     exposeResources?: boolean;
-    /** Optional TypeSafe Jev integrations. A valid key enables semantic search; script evaluation remains disabled by default. */
+    /** Optional Jev (System One) integrations. A valid key enables semantic search; script evaluation remains disabled by default. */
     jev?: false | {
         semanticSearch?: boolean;
         scriptEvaluation?: boolean;

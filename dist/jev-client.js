@@ -1,8 +1,8 @@
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { isServerDisabled } from "./types.js";
 import { combineAbortSignals } from "./runtime-owner.js";
-import { resolveJevCredential, TYPESAFE_API_ORIGIN } from "./jev-key-store.js";
-export { TYPESAFE_API_ORIGIN };
+import { JEV_DEFAULT_ENDPOINT, JEV_SDK_PATH, resolveJevCredential, resolveJevEndpoint, TYPESAFE_API_ORIGIN, } from "./jev-key-store.js";
+export { JEV_DEFAULT_ENDPOINT, TYPESAFE_API_ORIGIN };
 const DEFAULTS = {
     semanticSearch: false, scriptEvaluation: false, allowedServers: [], model: "jev-1.13.0",
     requestTimeoutMs: 5_000, maxRetries: 0, maxStateBytes: 262_144,
@@ -13,14 +13,29 @@ const DEFAULTS = {
 const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const hosts = new WeakMap();
 const credentials = new WeakMap();
-function resolveCredential(state) {
+/**
+ * Cached per endpoint so a changed `SYSTEMONE_ENDPOINT` cannot reuse another provider's credential. The endpoint
+ * itself is re-resolved on every operation: caching it would keep sending payloads to a provider the operator has
+ * already switched away from, or stop noticing that the configured endpoint became invalid.
+ */
+function resolveCredential(state, endpoint) {
     const existing = credentials.get(state);
-    if (existing)
-        return existing;
-    const credential = resolveJevCredential();
+    if (existing && existing.endpoint === endpoint.href)
+        return existing.credential;
+    const credential = resolveJevCredential(process.env, endpoint);
     if (credential.status === "present")
-        credentials.set(state, credential);
+        credentials.set(state, { endpoint: endpoint.href, credential });
     return credential;
+}
+/**
+ * Credential for whatever endpoint this state resolves to. An unusable endpoint yields `unavailable` rather than
+ * a credential from somewhere else, so an opt-in feature cannot turn itself on against the wrong provider.
+ */
+function credentialForState(state) {
+    const resolution = resolveJevEndpoint();
+    if (resolution.status === "unavailable")
+        return { status: "unavailable", message: resolution.message };
+    return resolveCredential(state, resolution.endpoint);
 }
 export function areJevSourcesAllowed(state, settings, sources) {
     for (const source of sources) {
@@ -89,7 +104,7 @@ export function resolveSemanticJevSettings(state, credentialResolver) {
     const settings = validateJevSettings(configured);
     if (configured === false || configured?.semanticSearch === false)
         return settings;
-    const semanticSearch = settings.semanticSearch || (credentialResolver ? credentialResolver() : resolveCredential(state)).status === "present";
+    const semanticSearch = settings.semanticSearch || (credentialResolver ? credentialResolver() : credentialForState(state)).status === "present";
     const hasExplicitAllowlist = configured !== undefined && Object.hasOwn(configured, "allowedServers");
     const allowedServers = hasExplicitAllowlist
         ? settings.allowedServers
@@ -256,44 +271,58 @@ function validateResponse(value, input) {
         throw new Error("Invalid response usage");
     return { answers: validated, model: response.model, usage: { inputTokens: safeNumber(usage.input_tokens, "input tokens", true), outputTokens: safeNumber(usage.output_tokens, "output tokens", true) } };
 }
-function fixedOriginFetch(input, init) {
-    const url = new URL(input);
-    if (url.origin !== TYPESAFE_API_ORIGIN)
-        throw new Error("TypeSafe request origin rejected");
-    return fetch(input, { ...init, redirect: "error" });
+/**
+ * Pins every request to the configured endpoint: the SDK appends its own fixed path to the base URL, so this
+ * rewrites that path onto the configured one and then rejects anything that does not match the endpoint exactly.
+ * Redirects stay refused, so a provider cannot bounce a request carrying the API key somewhere else.
+ */
+function createPinnedEndpointFetch(endpoint) {
+    return (input, init) => {
+        // A replacer function keeps `$&`, `$$`, and friends in the configured path literal.
+        const target = String(input).replace(JEV_SDK_PATH, () => endpoint.path);
+        const url = new URL(target);
+        if (url.origin !== endpoint.origin || url.pathname !== endpoint.path || url.search !== "" || url.hash !== "") {
+            throw new Error("Jev request endpoint rejected");
+        }
+        return fetch(target, { ...init, redirect: "error" });
+    };
 }
 function getHost(state, settings) {
+    const resolution = resolveJevEndpoint();
+    if (resolution.status === "unavailable")
+        return { ok: false, error: { code: "endpoint_unavailable", message: resolution.message } };
+    const { endpoint } = resolution;
     const existing = hosts.get(state);
-    if (existing)
+    if (existing && existing.endpoint.href === endpoint.href)
         return existing;
-    const credential = resolveCredential(state);
+    const credential = resolveCredential(state, endpoint);
     if (credential.status === "missing")
-        return { ok: false, error: { code: "credential_missing", message: "TypeSafe API key is not configured." } };
+        return { ok: false, error: { code: "credential_missing", message: "Jev API key is not configured." } };
     if (credential.status === "unavailable")
         return { ok: false, error: { code: "credential_unavailable", message: credential.message } };
-    const host = { client: new TypeSafeClient({ apiKey: credential.apiKey, baseURL: TYPESAFE_API_ORIGIN, defaultModel: settings.model, logLevel: "off", retry: { maxRetries: settings.maxRetries }, timeout: settings.requestTimeoutMs, defaultHeaders: {}, fetch: fixedOriginFetch }) };
+    const host = { endpoint, client: new TypeSafeClient({ apiKey: credential.apiKey, baseURL: endpoint.origin, defaultModel: settings.model, logLevel: "off", retry: { maxRetries: settings.maxRetries }, timeout: settings.requestTimeoutMs, defaultHeaders: {}, fetch: createPinnedEndpointFetch(endpoint) }) };
     hosts.set(state, host);
     return host;
 }
 function failure(error, signal, timedOut) {
     if (timedOut)
-        return { ok: false, error: { code: "timeout", message: "TypeSafe evaluation timed out.", retryable: true } };
+        return { ok: false, error: { code: "timeout", message: "Jev evaluation timed out.", retryable: true } };
     if (signal?.aborted || (error instanceof Error && error.name === "APIUserAbortError"))
-        return { ok: false, error: { code: "aborted", message: "TypeSafe evaluation was aborted." } };
+        return { ok: false, error: { code: "aborted", message: "Jev evaluation was aborted." } };
     const status = typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
     if (status === 401 || status === 403)
-        return { ok: false, error: { code: "authentication_failed", message: "TypeSafe authentication failed." } };
+        return { ok: false, error: { code: "authentication_failed", message: "Jev authentication failed." } };
     if (status === 408)
-        return { ok: false, error: { code: "timeout", message: "TypeSafe evaluation timed out.", retryable: true } };
+        return { ok: false, error: { code: "timeout", message: "Jev evaluation timed out.", retryable: true } };
     if (status === 429)
-        return { ok: false, error: { code: "rate_limited", message: "TypeSafe rate limit exceeded.", retryable: true } };
+        return { ok: false, error: { code: "rate_limited", message: "Jev rate limit exceeded.", retryable: true } };
     if (typeof status === "number" && status >= 500)
-        return { ok: false, error: { code: "service_unavailable", message: "TypeSafe service is unavailable.", retryable: true } };
+        return { ok: false, error: { code: "service_unavailable", message: "Jev service is unavailable.", retryable: true } };
     if (status === 400 || status === 422)
-        return { ok: false, error: { code: "invalid_request", message: "TypeSafe rejected the evaluation request." } };
+        return { ok: false, error: { code: "invalid_request", message: "Jev rejected the evaluation request." } };
     if (error instanceof Error && (error.name === "APIConnectionError" || error.name === "APITimeoutError"))
-        return { ok: false, error: { code: "service_unavailable", message: "TypeSafe service is unavailable.", retryable: true } };
-    return { ok: false, error: { code: "invalid_response", message: "TypeSafe returned an invalid response." } };
+        return { ok: false, error: { code: "service_unavailable", message: "Jev service is unavailable.", retryable: true } };
+    return { ok: false, error: { code: "invalid_response", message: "Jev returned an invalid response." } };
 }
 export async function evaluateJev(state, value, options) {
     let settings;
@@ -303,22 +332,22 @@ export async function evaluateJev(state, value, options) {
         input = validateJevEvaluateInput(value, settings);
     }
     catch {
-        return { ok: false, error: { code: "invalid_request", message: "Invalid TypeSafe evaluation request or settings." } };
+        return { ok: false, error: { code: "invalid_request", message: "Invalid Jev evaluation request or settings." } };
     }
     if ((options.purpose === "script" && !settings.scriptEvaluation) || (options.purpose === "semantic-search" && !settings.semanticSearch))
-        return { ok: false, error: { code: "disabled", message: "TypeSafe evaluation is disabled." } };
+        return { ok: false, error: { code: "disabled", message: "Jev evaluation is disabled." } };
     const sources = new Set([...(input.sources ?? []), ...(options.observedSources ?? [])]);
     if (!areJevSourcesAllowed(state, settings, sources))
         return { ok: false, error: { code: "data_policy_denied", message: "Evaluation sources are not allowed by policy." } };
     const bytes = Buffer.byteLength(JSON.stringify(input));
     if (options.budget && !options.budget.consume(bytes))
-        return { ok: false, error: { code: "budget_exhausted", message: "TypeSafe evaluation budget exhausted." } };
+        return { ok: false, error: { code: "budget_exhausted", message: "Jev evaluation budget exhausted." } };
     const resolved = getHost(state, settings);
     if (!("client" in resolved))
         return resolved;
     const deadline = new AbortController();
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; deadline.abort(new Error("TypeSafe evaluation deadline exceeded")); }, settings.requestTimeoutMs);
+    const timer = setTimeout(() => { timedOut = true; deadline.abort(new Error("Jev evaluation deadline exceeded")); }, settings.requestTimeoutMs);
     const signal = combineAbortSignals(options.signal, state.owner.signal, deadline.signal);
     try {
         const request = { state: input.state, questions: input.questions, model: settings.model };
@@ -327,7 +356,7 @@ export async function evaluateJev(state, value, options) {
             return { ok: true, data: validateResponse(raw, input) };
         }
         catch {
-            return { ok: false, error: { code: "invalid_response", message: "TypeSafe returned an invalid response." } };
+            return { ok: false, error: { code: "invalid_response", message: "Jev returned an invalid response." } };
         }
     }
     catch (error) {

@@ -394,7 +394,7 @@ Secret values in `headers`, `bearerToken`, `oauth.clientSecret`, and stdio `env`
 
 For local desktop bearer tokens, `bearerTokenStore: true` can opt in to the adapter-owned credential-store namespace. It never falls back to plaintext if the store is unavailable, if the stored record is malformed, or if the stored URL differs from the effective server URL. Literal tokens, command tokens, and environment tokens keep precedence so existing configs do not change. Create or rotate a stored token with `pi-mcp-adapter token set <server>` (masked prompt on a terminal, or piped stdin such as `security find-generic-password -s my-token -w | pi-mcp-adapter token set <server>`); the record binds to the effective configured URL at write time. Token commands need Node 22.18+.
 
-On Linux, bearer-token and TypeSafe key storage also recover automatically when a native operation fails with `KeyRevoked`, including wrapped errors from a revoked inherited session keyring. Each failed read/write/remove is retried once through `keyctl session - <current runtime> <packaged helper>`, with a 10-second timeout and no plaintext fallback. This requires `keyctl` on `PATH` and a working credential store in the fresh session; other storage errors still fail closed. Set `PI_MCP_ADAPTER_DISABLE_KEYRING_RECOVERY=1` to disable this recovery. Normal Pi and token CLI launches need no special wrapper.
+On Linux, bearer-token and System One key storage also recover automatically when a native operation fails with `KeyRevoked`, including wrapped errors from a revoked inherited session keyring. Each failed read/write/remove is retried once through `keyctl session - <current runtime> <packaged helper>`, with a 10-second timeout and no plaintext fallback. This requires `keyctl` on `PATH` and a working credential store in the fresh session; other storage errors still fail closed. Set `PI_MCP_ADAPTER_DISABLE_KEYRING_RECOVERY=1` to disable this recovery. Normal Pi and token CLI launches need no special wrapper.
 
 ### Shared MCP processes with rmcp-mux
 
@@ -522,7 +522,7 @@ When any enabled server uses `eager` or `keep-alive`, initialization also starts
 | `freezeDirectTools` | Keep direct-tool registration stable after the initial sync so metadata updates and explicit reconnects do not rebuild the system prompt. Proxy/search/cache metadata still refreshes. Default: false. |
 | `scriptMode` | Register the MCP-only `mcpScript` plain-JavaScript tool (default: true). Set to `false` to hide it. |
 | `exposeResources` | Expose MCP resources as tools (default: `true`). Set to `false` to disable globally across all servers. Per-server `exposeResources` overrides this. |
-| `jev` | Optional TypeSafe Jev settings. A valid TypeSafe key enables semantic search across every enabled MCP server by default; `semanticSearch: false` disables it. `scriptEvaluation` remains disabled by default and requires an `allowedServers` source allowlist when enabled. Run `/mcp jev setup` for guided configuration. |
+| `jev` | Optional System One Jev settings. A valid System One key enables semantic search across every enabled MCP server by default; `semanticSearch: false` disables it. `scriptEvaluation` remains disabled by default and requires an `allowedServers` source allowlist when enabled. Run `/mcp jev setup` for guided configuration. |
 | `disableProxyTool` | Hide the `mcp` proxy tool once configured direct tools are fully available from cache. Ignored while any server uses `directTools: "search"`, whose tools are registered inactive and can only be activated through `mcp({ search })`. |
 | `autoAuth` | Auto-run OAuth on `connect`/tool calls when a server needs auth, then retry once (default: false). |
 | `sampling` | Allow MCP servers to sample through Pi models, honoring `modelPreferences.hints` before current/default fallback (default: true when UI approval is available). |
@@ -599,7 +599,7 @@ Set `"outputGuard": false` — or the env kill switch `MCP_OUTPUT_GUARD=0` — t
 
 #### Jev semantic search and opt-in script evaluation
 
-A valid TypeSafe key makes semantic search available across every enabled MCP server; it does not run Jev searches automatically. A search uses Jev only when `searchMode: "semantic"` is explicitly requested. Jev ranks matching tools but never executes them. Script evaluation remains disabled until `scriptEvaluation: true` is configured. Requests use pinned model `jev-1.13.0` at the fixed origin `https://api.typesafe.ai`. Review TypeSafe's current [legal terms](https://docs.typesafe.ai/legal), including privacy and retention; a no-training commitment does not mean zero retention.
+A valid System One key makes semantic search available across every enabled MCP server; it does not run Jev searches automatically. A search uses Jev only when `searchMode: "semantic"` is explicitly requested. Jev ranks matching tools but never executes them. Script evaluation remains disabled until `scriptEvaluation: true` is configured. Requests use the pinned model from `settings.jev.model` (`jev-1.13.0` by default) against the endpoint in `SYSTEMONE_ENDPOINT`, which defaults to TypeSafe at `https://api.typesafe.ai/v1/systemone`. Review your provider's current legal terms — for TypeSafe, [legal terms](https://docs.typesafe.ai/legal), including privacy and retention; a no-training commitment does not mean zero retention.
 
 ```text
 Normal search
@@ -618,14 +618,35 @@ mcp({ search: "calendar", searchMode: "semantic" })
 The quickest desktop setup is:
 
 ```sh
-pi-mcp-adapter key set typesafe
+pi-mcp-adapter key set systemone
 ```
 
-That is enough to use semantic search across all enabled MCP tools. Run `/mcp jev setup` in Pi when you want to restrict which enabled servers may share semantic-search data. The command saves a project-scoped allowlist and reloads Pi automatically. Verify the stored credential at any time with `pi-mcp-adapter key status typesafe`.
+That is enough to use semantic search across all enabled MCP tools. Run `/mcp jev setup` in Pi when you want to restrict which enabled servers may share semantic-search data. The command saves a project-scoped allowlist and reloads Pi automatically. Verify the stored credential at any time with `pi-mcp-adapter key status systemone`.
 
-`TYPESAFE_API_KEY` is for CI/headless use and overrides the keyring. Stdio MCP subprocesses inherit the host environment by default, so set `inheritEnv: false` where they must not receive it. The script worker receives no key, SDK, endpoint, headers, or environment.
+`SYSTEMONE_API_KEY` is for CI/headless use and overrides the keyring. Stdio MCP subprocesses inherit the host environment by default, so set `inheritEnv: false` where they must not receive it. The script worker receives no key, SDK, endpoint, headers, or environment.
 
-Semantic search sends the query text, server names, normalized and original tool names, tool paths, and descriptions to TypeSafe. It does not send tool results. `allowedServers` restricts semantic search to named servers. `scriptEvaluation` is a separate opt-in that may send the state and MCP-derived results declared in each evaluation; when enabled, it requires an explicit source allowlist.
+##### Choosing a provider endpoint
+
+System One decisions are the same API at different origins, so pointing at another provider needs an endpoint and, usually, a model:
+
+| Provider | `SYSTEMONE_ENDPOINT` | Model |
+| --- | --- | --- |
+| TypeSafe (default) | `https://api.typesafe.ai/v1/systemone` | `jev-1.13.0` |
+| OpenCode Zen | `https://opencode.ai/zen/v1/systemone` | `jev-1.13` |
+| Command Code | `https://api.commandcode.ai/provider/v1/systemone` | `typesafe/jev` |
+| OpenRouter | `https://openrouter.ai/api/alpha/decisions` | `typesafe/jev-1.13` |
+
+These are example configurations, subject to each provider's current documentation ([OpenCode Zen](https://opencode.ai/docs/zen/), [Command Code](https://commandcode.ai/docs/provider), [TypeSafe](https://docs.typesafe.ai/)).
+
+The endpoint must be an absolute `https` URL with a path. A set-but-invalid `SYSTEMONE_ENDPOINT` disables Jev instead of falling back to the default, so judgment payloads never reach a provider you did not name. Treat the endpoint as trusted configuration: whatever it points at receives the effective API key and the judgment payload. `allowedServers` still restricts which MCP-derived data may be included. Credentials are stored per endpoint, so switching endpoints does not overwrite a key you already saved; set the model with:
+
+```json
+{ "settings": { "jev": { "model": "jev-1.13" } } }
+```
+
+The API key environment variable is `SYSTEMONE_API_KEY`. The older `TYPESAFE_API_KEY` name still works for the default TypeSafe endpoint, but it is a TypeSafe-issued credential and is deliberately not sent to any other endpoint; set `SYSTEMONE_API_KEY` when pointing somewhere else.
+
+Semantic search sends the query text, server names, normalized and original tool names, tool paths, and descriptions to the configured endpoint. It does not send tool results. `allowedServers` restricts semantic search to named servers. `scriptEvaluation` is a separate opt-in that may send the state and MCP-derived results declared in each evaluation; when enabled, it requires an explicit source allowlist.
 
 ```json
 {
@@ -641,7 +662,7 @@ Semantic search sends the query text, server names, normalized and original tool
 
 Request semantic discovery explicitly with `mcp({ search: "triage customer reports", searchMode: "semantic" })` or `tools.search({ query: "triage customer reports", searchMode: "semantic" })`. Regex is incompatible. Timeout, rate-limit, and service failures return marked lexical fallback; credential, policy, configuration, and response failures do not. If no allowed server has cached tools, search explains how to connect a server or update the allowlist; if Jev decides no tool fits, the result says that Jev abstained.
 
-Optional `jev` controls bound timeout/retries, request and script budgets, semantic candidates (at most 127), and minimum probability. The cumulative token budget uses provider-reported input plus output usage. Exact pre-response admission is unavailable without the provider tokenizer, so byte/question/state limits bound requests before dispatch; a response that exceeds the remaining token budget is discarded and exhausts it. The endpoint, headers, and SDK logging are not configurable.
+Optional `jev` controls bound timeout/retries, request and script budgets, semantic candidates (at most 127), and minimum probability. The cumulative token budget uses provider-reported input plus output usage. Exact pre-response admission is unavailable without the provider tokenizer, so byte/question/state limits bound requests before dispatch; a response that exceeds the remaining token budget is discarded and exhausts it. The endpoint is set by `SYSTEMONE_ENDPOINT`; headers and SDK logging are not configurable.
 
 `await jev.evaluate({ state, questions, sources })` returns `{ ok, data }` or `{ ok: false, error }`. `sources` must name every MCP server represented in `state`. The host also conservatively taints the whole script with every server-attributed MCP call result or error: declared and observed sources must all be enabled and in `allowedServers`, so copying data or omitting/mislabeling `sources` cannot bypass policy. The taint remains for later direct evaluations and semantic searches even when the script did not retain the call result. Direct and semantic provider attempts share the per-script count, UTF-8 request-byte, token, and deadline budgets; later `tools.call` operations still require normal authentication and approval. See `examples/jev-semantic-filter.mjs` and `examples/jev-accessibility-loop.mjs`.
 
