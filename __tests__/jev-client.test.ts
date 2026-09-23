@@ -205,6 +205,18 @@ describe("Jev host client", () => {
     expect(result).toEqual({ ok: false, error: { code: "timeout", message: "Jev evaluation timed out.", retryable: true } });
   });
 
+  it("reports provider HTTP failures instead of calling them invalid responses", async () => {
+    const cases = [[402, "payment_required"], [404, "endpoint_unavailable"], [413, "invalid_request"], [418, "invalid_request"]] as const;
+    for (const [status, code] of cases) {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("provider body mentioning a fund shortfall", { status }));
+      const result = await evaluateJev(state({ scriptEvaluation: true, allowedServers: ["allowed"] }), input, { purpose: "script" });
+      expect(result).toMatchObject({ ok: false, error: { code } });
+      // Provider bodies never reach the caller.
+      expect(JSON.stringify(result)).not.toContain("fund shortfall");
+      vi.restoreAllMocks();
+    }
+  });
+
   it("honors abort and a total deadline", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation((_request, init) => new Promise((_resolve, reject) => {
       if (init?.signal?.aborted) reject(new DOMException("aborted", "AbortError"));

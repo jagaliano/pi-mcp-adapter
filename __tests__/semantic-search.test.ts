@@ -188,7 +188,7 @@ describe("semantic search", () => {
       const result = await gatewaySemantic(state, "invoices", evaluator);
       expect(result.details).toMatchObject({ backend: { requested: "semantic", used: "lexical", degraded: true, reason: code } });
     }
-    for (const code of ["credential_missing", "credential_unavailable", "endpoint_unavailable", "authentication_failed", "data_policy_denied", "invalid_response"] as const) {
+    for (const code of ["credential_missing", "credential_unavailable", "endpoint_unavailable", "authentication_failed", "payment_required", "data_policy_denied", "invalid_response"] as const) {
       const evaluator: SemanticSearchEvaluator = async () => ({ ok: false, error: { code, message: "hard failure" } });
       const result = await gatewaySemantic(state, "invoices", evaluator);
       expect(result.details).toMatchObject({ error: code, message: "hard failure" });

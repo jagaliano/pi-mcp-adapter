@@ -26,7 +26,7 @@ export interface JevEvaluationData {
 export type JevErrorCode =
   | "disabled" | "invalid_request" | "data_policy_denied" | "budget_exhausted"
   | "endpoint_unavailable" | "credential_missing" | "credential_unavailable" | "authentication_failed"
-  | "timeout" | "aborted" | "rate_limited" | "service_unavailable" | "invalid_response";
+  | "payment_required" | "timeout" | "aborted" | "rate_limited" | "service_unavailable" | "invalid_response";
 
 export type JevEvaluationEnvelope =
   | { ok: true; data: JevEvaluationData }

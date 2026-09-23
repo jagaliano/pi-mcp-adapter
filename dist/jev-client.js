@@ -309,17 +309,27 @@ function failure(error, signal, timedOut) {
         return { ok: false, error: { code: "timeout", message: "Jev evaluation timed out.", retryable: true } };
     if (signal?.aborted || (error instanceof Error && error.name === "APIUserAbortError"))
         return { ok: false, error: { code: "aborted", message: "Jev evaluation was aborted." } };
+    // Provider and gateway bodies are never echoed; only the status is used to classify the failure.
     const status = typeof error === "object" && error !== null && "status" in error ? error.status : undefined;
     if (status === 401 || status === 403)
         return { ok: false, error: { code: "authentication_failed", message: "Jev authentication failed." } };
+    if (status === 402)
+        return { ok: false, error: { code: "payment_required", message: "Jev provider reports insufficient funds for this account." } };
+    // A configurable endpoint makes a wrong path a configuration error, not a malformed response.
+    if (status === 404 || status === 405 || status === 410)
+        return { ok: false, error: { code: "endpoint_unavailable", message: "Jev endpoint was not found; check SYSTEMONE_ENDPOINT." } };
     if (status === 408)
         return { ok: false, error: { code: "timeout", message: "Jev evaluation timed out.", retryable: true } };
+    if (status === 413)
+        return { ok: false, error: { code: "invalid_request", message: "Jev rejected the evaluation request as too large." } };
     if (status === 429)
         return { ok: false, error: { code: "rate_limited", message: "Jev rate limit exceeded.", retryable: true } };
     if (typeof status === "number" && status >= 500)
         return { ok: false, error: { code: "service_unavailable", message: "Jev service is unavailable.", retryable: true } };
     if (status === 400 || status === 422)
         return { ok: false, error: { code: "invalid_request", message: "Jev rejected the evaluation request." } };
+    if (typeof status === "number" && status >= 400)
+        return { ok: false, error: { code: "invalid_request", message: `Jev rejected the evaluation request (HTTP ${status}).` } };
     if (error instanceof Error && (error.name === "APIConnectionError" || error.name === "APITimeoutError"))
         return { ok: false, error: { code: "service_unavailable", message: "Jev service is unavailable.", retryable: true } };
     return { ok: false, error: { code: "invalid_response", message: "Jev returned an invalid response." } };
