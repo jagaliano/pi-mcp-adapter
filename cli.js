@@ -394,7 +394,9 @@ async function runKey(argv, log, error, stdin) {
     log("Jev API key stored in the OS secure credential store.");
     log(`endpoint=${endpoint.href}`);
     if (Object.hasOwn(process.env, "SYSTEMONE_API_KEY")) log("Note: SYSTEMONE_API_KEY is present and overrides the stored key.");
-    else if (Object.hasOwn(process.env, "TYPESAFE_API_KEY")) log("Note: TYPESAFE_API_KEY is present and overrides the stored key.");
+    else if (Object.hasOwn(process.env, "TYPESAFE_API_KEY")) log(endpoint.href === store.JEV_DEFAULT_ENDPOINT
+      ? "Note: TYPESAFE_API_KEY is present and overrides the stored key."
+      : `Note: TYPESAFE_API_KEY is ignored for ${endpoint.href}; it is a TypeSafe credential and is never sent there.`);
     return 0;
   }
   if (action === "status") {
@@ -408,7 +410,9 @@ async function runKey(argv, log, error, stdin) {
   catch (err) { error(err instanceof Error ? err.message : "Jev API key could not be removed."); return 1; }
   log("Jev API key removed from the OS secure credential store.");
   if (Object.hasOwn(process.env, "SYSTEMONE_API_KEY")) log("SYSTEMONE_API_KEY is still present and overrides the stored key.");
-  else if (Object.hasOwn(process.env, "TYPESAFE_API_KEY")) log("TYPESAFE_API_KEY is still present and overrides the stored key.");
+  else if (Object.hasOwn(process.env, "TYPESAFE_API_KEY")) log(endpoint.href === store.JEV_DEFAULT_ENDPOINT
+    ? "TYPESAFE_API_KEY is still present and overrides the stored key."
+    : `TYPESAFE_API_KEY is ignored for ${endpoint.href}; it is a TypeSafe credential and is never sent there.`);
   return 0;
 }
 

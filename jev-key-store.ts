@@ -11,8 +11,9 @@ export const SYSTEMONE_ENDPOINT_ENV = "SYSTEMONE_ENDPOINT";
 /** Environment variable holding the System One API key. */
 export const SYSTEMONE_API_KEY_ENV = "SYSTEMONE_API_KEY";
 /**
- * Pre-endpoint name for {@link SYSTEMONE_API_KEY_ENV}. Still read, and still wins over the keyring, so an existing
- * environment keeps working unchanged; `SYSTEMONE_API_KEY` takes precedence when both are set.
+ * Pre-endpoint name for {@link SYSTEMONE_API_KEY_ENV}. Still read for the default endpoint, and still wins over the
+ * keyring there, so an existing TypeSafe environment keeps working unchanged; `SYSTEMONE_API_KEY` takes precedence
+ * when both are set. It carries a TypeSafe-issued credential, so it is never sent to any other endpoint.
  */
 export const LEGACY_TYPESAFE_API_KEY_ENV = "TYPESAFE_API_KEY";
 /** @deprecated Kept because sibling modules import it. Use {@link JEV_DEFAULT_ENDPOINT}. */
@@ -169,24 +170,27 @@ export function resolveJevCredential(
     try { return { status: "present", source: "environment", apiKey: validateApiKey(env[SYSTEMONE_API_KEY_ENV]) }; }
     catch { return { status: "unavailable", message: `${SYSTEMONE_API_KEY_ENV} is present but invalid.` }; }
   }
-  if (Object.hasOwn(env, LEGACY_TYPESAFE_API_KEY_ENV)) {
-    // The legacy name carries a TypeSafe-issued credential, so it is never sent to another provider.
-    if (target.href !== JEV_DEFAULT_ENDPOINT) {
-      return {
-        status: "unavailable",
-        message: `${LEGACY_TYPESAFE_API_KEY_ENV} is a TypeSafe credential and is not sent to ${target.href}; set ${SYSTEMONE_API_KEY_ENV} for that endpoint.`,
-      };
-    }
+  const legacySet = Object.hasOwn(env, LEGACY_TYPESAFE_API_KEY_ENV);
+  if (legacySet && target.href === JEV_DEFAULT_ENDPOINT) {
     try { return { status: "present", source: "environment", apiKey: validateApiKey(env[LEGACY_TYPESAFE_API_KEY_ENV]) }; }
     catch { return { status: "unavailable", message: `${LEGACY_TYPESAFE_API_KEY_ENV} is present but invalid.` }; }
   }
-  try {
-    const apiKey = readStoredKey(secretStore, target);
-    return apiKey === undefined ? { status: "missing" } : { status: "present", source: "keyring", apiKey };
-  } catch (error) {
+  let stored: string | undefined;
+  try { stored = readStoredKey(secretStore, target); }
+  catch (error) {
     if (!(error instanceof JevCredentialStoreError)) throw error;
     return { status: "unavailable", message: error.message };
   }
+  if (stored !== undefined) return { status: "present", source: "keyring", apiKey: stored };
+  // A TypeSafe-issued credential is never sent to another endpoint, but it must not mask a credential stored for
+  // this endpoint either, so it is only reported once nothing for this endpoint resolves.
+  if (legacySet) {
+    return {
+      status: "unavailable",
+      message: `${LEGACY_TYPESAFE_API_KEY_ENV} is a TypeSafe credential and is not sent to ${target.href}; set ${SYSTEMONE_API_KEY_ENV} for that endpoint.`,
+    };
+  }
+  return { status: "missing" };
 }
 
 export function saveJevApiKey(apiKey: string, endpoint?: ResolvedJevEndpoint, secretStore: SecureKeyringStore = store()): void {

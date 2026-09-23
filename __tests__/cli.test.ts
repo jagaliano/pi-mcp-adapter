@@ -386,6 +386,16 @@ describe("cli System One key helper", () => {
     expect(errors.join("\n")).not.toContain("never-stored");
   });
 
+  it("explains that a legacy TypeSafe key is ignored on another endpoint", async () => {
+    const { main } = await import("../cli.js");
+    process.env.SYSTEMONE_ENDPOINT = "https://opencode.ai/zen/v1/systemone";
+    process.env.TYPESAFE_API_KEY = "legacy-secret";
+    const logs: string[] = [];
+    expect(await main(["key", "remove", "systemone"], line => logs.push(line), () => {}, keyStdin(""))).toBe(0);
+    expect(logs.join("\n")).toContain("ignored for https://opencode.ai/zen/v1/systemone");
+    expect(logs.join("\n")).not.toContain("legacy-secret");
+  });
+
   it("rejects argv secrets and explains an environment override after removal", async () => {
     const { main } = await import("../cli.js");
     const errors: string[] = [];

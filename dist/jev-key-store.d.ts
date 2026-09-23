@@ -10,8 +10,9 @@ export declare const SYSTEMONE_ENDPOINT_ENV = "SYSTEMONE_ENDPOINT";
 /** Environment variable holding the System One API key. */
 export declare const SYSTEMONE_API_KEY_ENV = "SYSTEMONE_API_KEY";
 /**
- * Pre-endpoint name for {@link SYSTEMONE_API_KEY_ENV}. Still read, and still wins over the keyring, so an existing
- * environment keeps working unchanged; `SYSTEMONE_API_KEY` takes precedence when both are set.
+ * Pre-endpoint name for {@link SYSTEMONE_API_KEY_ENV}. Still read for the default endpoint, and still wins over the
+ * keyring there, so an existing TypeSafe environment keeps working unchanged; `SYSTEMONE_API_KEY` takes precedence
+ * when both are set. It carries a TypeSafe-issued credential, so it is never sent to any other endpoint.
  */
 export declare const LEGACY_TYPESAFE_API_KEY_ENV = "TYPESAFE_API_KEY";
 /** @deprecated Kept because sibling modules import it. Use {@link JEV_DEFAULT_ENDPOINT}. */

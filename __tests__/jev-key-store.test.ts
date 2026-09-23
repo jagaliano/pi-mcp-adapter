@@ -73,6 +73,19 @@ describe("System One endpoint and credential storage", () => {
     expect(resolveJevCredential(process.env, opencode)).toEqual({ status: "present", source: "environment", apiKey: "opencode-secret" });
   });
 
+  it("an inherited legacy credential does not mask a keyring credential for another endpoint", () => {
+    const opencode = endpointOf(OPENCODE_ENDPOINT);
+    saveJevApiKey("opencode-keyring-key", opencode);
+    process.env.TYPESAFE_API_KEY = "legacy-typesafe-secret";
+    // The stored credential for this endpoint still wins; the legacy name is not a blocker.
+    expect(resolveJevCredential(process.env, opencode)).toEqual({ status: "present", source: "keyring", apiKey: "opencode-keyring-key" });
+    // With nothing stored for this endpoint, the refusal explains itself instead of reporting a bare miss.
+    removeJevApiKey(opencode);
+    const resolution = resolveJevCredential(process.env, opencode);
+    expect(resolution).toMatchObject({ status: "unavailable" });
+    expect(resolution.status === "unavailable" && resolution.message).toContain("set SYSTEMONE_API_KEY");
+  });
+
   it("rejects endpoints that could redirect, smuggle, or leak a request", () => {
     const rejected = [
       "http://api.typesafe.ai/v1/systemone",

@@ -644,7 +644,7 @@ The endpoint must be an absolute `https` URL with a path. A set-but-invalid `SYS
 { "settings": { "jev": { "model": "jev-1.13" } } }
 ```
 
-The API key environment variable is `SYSTEMONE_API_KEY`. The older `TYPESAFE_API_KEY` name still works for the default TypeSafe endpoint, but it is a TypeSafe-issued credential and is deliberately not sent to any other endpoint; set `SYSTEMONE_API_KEY` when pointing somewhere else.
+The API key environment variable is `SYSTEMONE_API_KEY`. The older `TYPESAFE_API_KEY` name still works for the default TypeSafe endpoint. It is a TypeSafe-issued credential, so it is never sent to another endpoint: when `SYSTEMONE_ENDPOINT` points elsewhere the variable is ignored and a credential stored for that endpoint is used instead. If nothing resolves for the configured endpoint, Jev reports the refusal rather than a bare missing key.
 
 Semantic search sends the query text, server names, normalized and original tool names, tool paths, and descriptions to the configured endpoint. It does not send tool results. `allowedServers` restricts semantic search to named servers. `scriptEvaluation` is a separate opt-in that may send the state and MCP-derived results declared in each evaluation; when enabled, it requires an explicit source allowlist.
 
